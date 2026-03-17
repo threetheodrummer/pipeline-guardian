@@ -1,0 +1,33 @@
+name: Security Gate - Secrets & SAST
+
+on:
+  workflow_call:
+
+jobs:
+  secrets-and-sast:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Gitleaks (Secrets Detection)
+        uses: gitleaks/gitleaks-action@v2
+        with:
+          fail: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Semgrep (SAST)
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: p/ci
+          generateSarif: true
+        env:
+          SEMGREP_RULES: p/ci
+
+      - name: Upload Semgrep SARIF
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-sast-report
+          path: semgrep.sarif

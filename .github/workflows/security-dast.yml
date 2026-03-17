@@ -1,0 +1,40 @@
+name: Security Gate - DAST (OWASP ZAP)
+
+on:
+  workflow_call:
+
+jobs:
+  dast:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build application image
+        run: |
+          docker build -t pipeline-guardian:latest app/
+
+      - name: Run application container
+        run: |
+          docker run -d -p 8080:8080 --name pg-app pipeline-guardian:latest
+          sleep 10
+
+      - name: Run OWASP ZAP Baseline Scan
+        run: |
+          docker run --rm \
+            --network host \
+            -v ${{ github.workspace }}/reports:/zap/wrk \
+            owasp/zap2docker-stable zap-baseline.py \
+            -t http://localhost:8080 \
+            -r zap-report.html \
+            -J zap-report.json \
+            -x zap-report.xml \
+            -m 5 \
+            -I
+
+      - name: Upload ZAP reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-dast-report
+          path: reports/

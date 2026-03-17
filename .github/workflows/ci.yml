@@ -1,0 +1,112 @@
+name: Pipeline Guardian - CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+
+jobs:
+  # ---------------------------
+  # PHASE 1: SECRETS + SAST
+  # ---------------------------
+  sast:
+    name: secrets-and-sast
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run TruffleHog (Secrets Scan)
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: .
+          fail: true
+
+  # ---------------------------
+  # PHASE 2: DEPENDENCY SCAN
+  # ---------------------------
+  dependency-scan:
+    name: dependency-scan
+    runs-on: ubuntu-latest
+    needs: sast
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Trivy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+          echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update
+          sudo apt-get install -y trivy
+
+      - name: Run Trivy Dependency Scan (CVSS >= 7 fails)
+        run: |
+          trivy fs \
+            --severity HIGH,CRITICAL \
+            --exit-code 1 \
+            --format json \
+            --output reports/trivy-deps.json \
+            .
+
+      - name: Upload Dependency Scan Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-dependency-report
+          path: reports/trivy-deps.json
+
+  # ---------------------------
+  # PHASE 3: CONTAINER SCAN
+  # ---------------------------
+  container-scan:
+    name: container-scan
+    runs-on: ubuntu-latest
+    needs: dependency-scan
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Trivy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+          echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update
+          sudo apt-get install -y trivy
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t pipeline-guardian:latest \
+            -f app/Dockerfile \
+            app
+
+      - name: Trivy Container Scan
+        run: |
+          trivy image \
+            --severity HIGH,CRITICAL \
+            --exit-code 1 \
+            --format json \
+            --output reports/trivy-image.json \
+            pipeline-guardian:latest
+
+      - name: Upload Container Scan Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-container-report
+          path: reports/trivy-image.json
+
+  # ---------------------------
+  # PHASE 4: DAST (placeholder)
+  # ---------------------------
+  dast:
+    name: dast
+    runs-on: ubuntu-latest
+    needs: container-scan
+    if: false
